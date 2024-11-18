@@ -1,4 +1,4 @@
-name: deploy
+name: Upload a Build Artifacts
 on:
   pull_request:
   push:
@@ -7,66 +7,18 @@ on:
     tags-ignore:
       - '**'
 
-env:
-  ### compiler options
-  HOST:
-  WRAPPER_CMD:
-  # Specific warnings can be disabled with -Wno-error=foo.
-  # -pedantic-errors is not equivalent to -Werror=pedantic and thus not implied by -Werror according to the GCC manual.
-  WERROR_CFLAGS: '-Werror -pedantic-errors'
-  MAKEFLAGS: '-j4'
-  BUILD: 'check'
-  ### secp256k1 config
-  ECMULTWINDOW: 15
-  ECMULTGENKB: 86
-  ASM: 'no'
-  WIDEMUL: 'auto'
-  WITH_VALGRIND: 'yes'
-  EXTRAFLAGS:
-  ### secp256k1 modules
-  EXPERIMENTAL: 'no'
-  ECDH: 'no'
-  RECOVERY: 'no'
-  EXTRAKEYS: 'no'
-  SCHNORRSIG: 'no'
-  MUSIG: 'no'
-  ELLSWIFT: 'no'
-  ### test options
-  SECP256K1_TEST_ITERS: 64
-  BENCH: 'yes'
-  SECP256K1_BENCH_ITERS: 2
-  CTIMETESTS: 'yes'
-  # Compile and run the examples.
-  EXAMPLES: 'yes'
-
 jobs:
-  win64-native:
-    name: ${{ matrix.configuration.job_name }}
+  win64-native-shared:
+    name: 'x64 (MSVC): Windows (VS 2022, shared)'
     # See: https://github.com/actions/runner-images#available-images.
     runs-on: windows-2022
-
-    strategy:
-      fail-fast: false
-      matrix:
-        configuration:
-          - job_name: 'x64 (MSVC): Windows (VS 2022, shared)'
-            cmake_options: '-A x64 -DBUILD_SHARED_LIBS=ON'
-          - job_name: 'x64 (MSVC): Windows (VS 2022, static)'
-            cmake_options: '-A x64 -DBUILD_SHARED_LIBS=OFF'
-          - job_name: 'x64 (MSVC): Windows (VS 2022, int128_struct)'
-            cmake_options: '-A x64 -DSECP256K1_TEST_OVERRIDE_WIDE_MULTIPLY=int128_struct'
-          - job_name: 'x64 (MSVC): Windows (VS 2022, int128_struct with __(u)mulh)'
-            cmake_options: '-A x64 -DSECP256K1_TEST_OVERRIDE_WIDE_MULTIPLY=int128_struct'
-            cpp_flags: '/DSECP256K1_MSVC_MULH_TEST_OVERRIDE'
-          - job_name: 'x86 (MSVC): Windows (VS 2022)'
-            cmake_options: '-A Win32'
-
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Generate buildsystem
-        run: cmake -E env CFLAGS="/WX ${{ matrix.configuration.cpp_flags }}" cmake -B build -DSECP256K1_ENABLE_MODULE_RECOVERY=ON -DSECP256K1_BUILD_EXAMPLES=ON ${{ matrix.configuration.cmake_options }}
+        run: cmake -E env CFLAGS="/WX" cmake -B build -DSECP256K1_ENABLE_MODULE_RECOVERY=ON -DSECP256K1_BUILD_EXAMPLES=ON -A x64 -DBUILD_SHARED_LIBS=ON
 
       - name: Build
         run: cmake --build build --config RelWithDebInfo -- /p:UseMultiToolTask=true /maxCpuCount
@@ -84,28 +36,10 @@ jobs:
           build\bin\RelWithDebInfo\bench_internal.exe
           build\bin\RelWithDebInfo\bench.exe
 
-  deploy:
-      runs-on: ubuntu-latest
-      needs: [ win64-native ]
-      
-      steps:
-        - name: Checkout
-          uses: actions/checkout@v4
+      - name: Create archive
+        run: 7z a build-win64-shared.zip build\bin\RelWithDebInfo\libsecp256k1-*.dll
 
-        - name: Download artifacts
-          uses: actions/download-artifact@v3
-          with:
-            path: artifacts
-        
-        - name: Create zip file
-          run: 7z a artifacts.zip artifacts/*
-        
-        - name: Upload Release
-          uses: actions/upload-release-asset@v1
-          env:
-           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          with:
-            upload_url: ${{ github.event.release.upload_url }}
-            asset_path: ./artifacts.zip
-            asset_name: artifacts-${{ github.ref_name }}.zip
-            asset_content_type: application/zip
+      - name: Upload Release
+        uses: actions/upload-artifact@v4.4.3
+        with:
+          path: build-win64-shared.zip
